@@ -115,44 +115,43 @@ def construct_map(specs, geo_num):
     plt.close(fig)
 
     
+def construct_X_helper(ANT_LOCATION, img_scale, wifi_radius=1):
+    x, y, z = ANT_LOCATION
+    scale = int(1 // MESH)
+    ###### FEATURE ENGINEERING STEP
+    ## Map [0, 255] -> [0, 1/2] Take the negative part of logit, negate and then plus 1
+    ## [dielectric constant, distance, angle]
+    temp = np.zeros(shape = (int((YRANGE[1] - YRANGE[0]) / MESH_Y + 1), int((XRANGE[1] - XRANGE[0]) / MESH_X + 1), 4))
+    for i, y1 in enumerate(np.arange(YRANGE[1], YRANGE[0] - MESH_Y, -MESH_Y)):
+        for j, x1 in enumerate(np.arange(XRANGE[0], XRANGE[1] + MESH_X, MESH_X)):
+            temp[i, j, 0] = -VAL_MAX if img_scale[i, j, 1] != 0 else 0 if img_scale[i, j, 2] != 0 else \
+                            min(-np.log((img_scale[i, j, 0] / 255 / 2) / (1 - img_scale[i, j, 0] / 255 / 2)) + 1, VAL_MAX)
+            temp[i, j, 2] = np.sqrt((x1-x)**2 + (y1-y)**2)
+            temp[i, j, 3] = np.arctan((y1-y) / (x1 - x)) if x1-x != 0 else 3.14/2 if y1 > y else -3.14/2
+    try:
+        temp[:,:,1] = integrate_X_over_coeff(temp[:,:,0], [x, y])
+    except Exception as e:
+        raise Exception("Error: {}. Integration Failed".format(e))
+
+    for r1 in np.arange(-wifi_radius, wifi_radius + 1):
+        for r2 in np.arange(-wifi_radius, wifi_radius + 1):
+            row, col = int((x - XRANGE[0]) * scale) + r2, int((YRANGE[1] - y) * scale) + r1
+            if row >= 0 and row <= (XRANGE[1] - XRANGE[0]) * scale and \
+               col >= 0 and col <= (YRANGE[1] - YRANGE[0]) * scale:
+                temp[col, row] = [-1, 5, 0, -1]
+    return temp
+
 def construct_X(geo_num, wifi_radius=1):
-    def construct_X_helper(ANT_LOCATION, wifi_radius=1):
-        x, y, z = ANT_LOCATION
-        ###### FEATURE ENGINEERING STEP
-        ## Map [0, 255] -> [0, 1/2] Take the negative part of logit, negate and then plus 1
-        ## [dielectric constant, distance, angle]
-        temp = np.zeros(shape = (int((YRANGE[1] - YRANGE[0]) / MESH_Y + 1), int((XRANGE[1] - XRANGE[0]) / MESH_X + 1), 4))
-        for i, y1 in enumerate(np.arange(YRANGE[1], YRANGE[0] - MESH_Y, -MESH_Y)):
-            for j, x1 in enumerate(np.arange(XRANGE[0], XRANGE[1] + MESH_X, MESH_X)):
-                temp[i, j, 0] = -VAL_MAX if img_scale[i, j, 1] != 0 else 0 if img_scale[i, j, 2] != 0 else \
-                                min(-np.log((img_scale[i, j, 0] / 255 / 2) / (1 - img_scale[i, j, 0] / 255 / 2)) + 1, VAL_MAX)
-                temp[i, j, 2] = np.sqrt((x1-x)**2 + (y1-y)**2)
-                temp[i, j, 3] = np.arctan((y1-y) / (x1 - x)) if x1-x != 0 else 3.14/2 if y1 > y else -3.14/2
-        try:
-            temp[:,:,1] = integrate_X_over_coeff(temp[:,:,0], [x, y])
-        except Exception as e:
-            raise Exception("Error: {}. Integration Failed".format(e))
-
-        for r1 in np.arange(-wifi_radius, wifi_radius + 1):
-            for r2 in np.arange(-wifi_radius, wifi_radius + 1):
-                row, col = int((x - XRANGE[0]) * scale) + r2, int((YRANGE[1] - y) * scale) + r1
-                if row >= 0 and row <= (XRANGE[1] - XRANGE[0]) * scale and \
-                   col >= 0 and col <= (YRANGE[1] - YRANGE[0]) * scale:
-                    temp[col, row] = [-1, 5, 0, -1]
-        return temp
-
     spec_img_path = 'maps/out{}.png'.format(geo_num) if type(GEO) is not str else \
                     os.path.join(GEO, 'out{}.png'.format(geo_num))
-    
     spec_img_path = GEO if SINGLE_GEO and os.path.isfile(GEO) else os.path.join(GEO, 'out1.png') if SINGLE_GEO else spec_img_path
-    
     img_scale = cv2.cvtColor(cv2.imread(spec_img_path), cv2.COLOR_BGR2RGB)
-    X = []; scale = int(1 // MESH)
+    X = []
     if SINGLE_GEO:
-        X.append(construct_X_helper(master[geo_num]['LOCATION'], wifi_radius))
+        X.append(construct_X_helper(master[geo_num]['LOCATION'], img_scale, wifi_radius))
     else:
         for k in master[geo_num]:
-            X.append(construct_X_helper(master[geo_num][k]['LOCATION'], wifi_radius))
+            X.append(construct_X_helper(master[geo_num][k]['LOCATION'], img_scale, wifi_radius))
     return X
 
 def construct_y(geo_num):
@@ -371,12 +370,12 @@ def parse_arguments():
                         help = 'Alternative trained model saving path (Default is ./trained_nn_weights.h5)')
     args = parser.parse_args()
 
-    if args.examine.lower() not in ['true', 'false']:
+    if args.examine and args.examine.lower() not in ['true', 'false']:
         raise Exception('Syntax Error:  only supports [-e / --examine TRUE/FALSE]')
-    if args.transfer.lower() not in ['true', 'false']:
+    if args.transfer and args.transfer.lower() not in ['true', 'false']:
         raise Exception('Syntax Error: only supports [-t / --transfer TRUE/FALSE]')
-    args.examine = True if args.examine.lower() == 'true' else False
-    args.transfer = True if args.transfer.lower() == 'true' else False 
+    args.examine = False if not args.examine or args.examine.lower() == 'false' else True
+    args.transfer = False if not args.transfer or args.transfer.lower() == 'false' else True 
    
     ## load data from params
     if not os.path.exists(args.data_path):
