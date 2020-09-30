@@ -44,8 +44,13 @@ def plot_signal_strength(df, antenna_xy):
     mpl.use("pdf")
     plt.figure(figsize=(10, 5))
     sc = plt.matshow(df, vmin=None, vmax=None, fignum = 1, cmap="coolwarm")
-    plt.xticks(range(0, 25 , 2), np.arange(-7, 8, 2))
-    plt.yticks(range(0, 41, 4), np.arange(10, -11, -2))
+    xr, yr = train_nn.XRANGE, train_nn.YRANGE
+    mesh_x, mesh_y = train_nn.MESH_X, train_nn.MESH_Y
+    plt.xticks(range(0, df.shape[1], 4), np.arange(xr[0], xr[1] + mesh_x * 4, 
+               mesh_x * 4), rotation = 60, ha = 'left')
+    plt.yticks(range(0, df.shape[0], 4), np.arange(yr[0], yr[1] + mesh_y * 4, 
+               mesh_y * 4))
+
     plt.colorbar(sc)
     plt.savefig("PredMap"+str(antenna_xy)+".png")
 
