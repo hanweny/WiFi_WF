@@ -363,14 +363,21 @@ def parse_arguments():
                        help = 'Support three modes: 1) Path to geometry csv specs file. 2) Dir to spec images files (image filenames in Dir have to match "out{geo_num}.png" format. 3) Path to a single image file (if there is only one geometry in the given data pickle file.)')
     parser.add_argument('-m', '--model', type=str,
                        help = 'Path of trained model. (Special case: If model input shape matches given data geometry dimension and transfer learning flag is not set, then simply return.)')
-    parser.add_argument('-t', '--transfer', action='store_true',
+    parser.add_argument('-t', '--transfer', type=str,
                        help = 'Flag to use transfer learning. Model path must be provided.')  # Use 'store_true' as a flag'
-    parser.add_argument('-e', '--examine', action='store_true', 
+    parser.add_argument('-e', '--examine', type=str, 
                        help = 'Flag to output one featured engineered and prediction results.')
     parser.add_argument('-o', '--output_path', type=str, default = './trained_nn_weights.h5', 
                         help = 'Alternative trained model saving path (Default is ./trained_nn_weights.h5)')
     args = parser.parse_args()
 
+    if args.examine.lower() not in ['true', 'false']:
+        raise Exception('Syntax Error:  only supports [-e / --examine TRUE/FALSE]')
+    if args.transfer.lower() not in ['true', 'false']:
+        raise Exception('Syntax Error: only supports [-t / --transfer TRUE/FALSE]')
+    args.examine = True if args.examine.lower() == 'true' else False
+    args.transfer = True if args.transfer.lower() == 'true' else False 
+   
     ## load data from params
     if not os.path.exists(args.data_path):
         raise Exception("Preprocessed data pickle does not exists at: {}".format(args.data_path))
