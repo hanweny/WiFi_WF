@@ -1,22 +1,13 @@
 import train_nn
-import cv2
-import sys
-import os
-import operator
-import pickle
+import cv2, sys, os, pickle, argparse
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from tensorflow.keras.models import load_model
 
-def RunNN(divisor,xr,yr,model, geo_num = None):
+def RunNN(divisor,xr,yr, img_scale, model):
     x_mesh = (xr[1] - xr[0]) // divisor
     y_mesh = (yr[1] - yr[0]) // divisor
-    if not geo_num:
-        geo_num = 1
-    spec_img_path = 'maps/out{}.png'.format(geo_num) if type(train_nn.GEO) is not str else os.path.join(train_nn.GEO, 'out{}.png'.format(geo_num))
-    spec_img_path = train_nn.GEO if train_nn.SINGLE_GEO and os.path.isfile(train_nn.GEO) else os.path.join(train_nn.GEO, 'out1.png') if train_nn.SINGLE_GEO else spec_img_path
-    img_scale = cv2.cvtColor(cv2.imread(spec_img_path), cv2.COLOR_BGR2RGB) 
-
     X_LIST = []
     ANT_LOC_LIST = []
     for x in np.arange(xr[0], xr[1] + 1, x_mesh):
@@ -50,19 +41,52 @@ def plot_signal_strength(df, antenna_xy):
                mesh_x * 4), rotation = 60, ha = 'left')
     plt.yticks(range(0, df.shape[0], 4), np.arange(yr[0], yr[1] + mesh_y * 4, 
                mesh_y * 4))
-
     plt.colorbar(sc)
     plt.savefig("PredMap"+str(antenna_xy)+".png")
 
+def parse_arguments():
+    parser = argparse.ArgumentParser(description = "Predict the best locations for WiFi router installment")
+    parser.add_argument("map_path", type = str,
+                        help = "Preprocessed map file path")
+    parser.add_argument("model_path", type = str,
+                        help = "Trained model path")
+    args = parser.parse_args()
+    try:
+        img_scale = cv2.cvtColor(cv2.imread(args.map_path), cv2.COLOR_BGR2RGB) 
+    except:
+        raise Exception("Preprocessed map file  does not exist at:  {}".format(args.map_path))
+    try:
+        model = load_model(args.model_path, custom_objects = {"coeff_determination":train_nn.coeff_determination})        
+    except:
+        raise Exception("Trained Model does not exist at:  {}".format(args.model_path))
+    try:
+        assert(img_scale.shape[0] == model.layers[0].input_shape[1] and \
+               img_scale.shape[1] == model.layers[0].input_shape[2])
+    except:
+        raise Exception("Map dimension does not match with the model input shape. Examine the map and model pair")
+
+    return img_scale, model
+
+def set_train_nn_global_variables(img_scale):
+    train_nn.VAL_MAX = 10**2
+    train_nn.PIXEL_MARGIN_ERROR_THRESHOLD = 100
+    train_nn.XRANGE = [0, img_scale.shape[1]-1]
+    train_nn.YRANGE = [0, img_scale.shape[0]-1]
+    train_nn.MESH_X, train_nn.MESH_Y = 1, 1
+    train_nn.MESH = 1
+    train_nn.X_DIM = img_scale.shape[1]
+    train_nn.Y_DIM = img_scale.shape[0]
+
 def main():
-    args = train_nn.parse_arguments()
-    train_nn.set_global_variables(train_nn.master)
+    img_scale, model  = parse_arguments()
+    set_train_nn_global_variables(img_scale)
     print('\nX dimension:  {},    X range:  {}'.format(train_nn.X_DIM, train_nn.XRANGE))
     print("Y dimension:  {},    Y range:  {}\n".format(train_nn.Y_DIM, train_nn.YRANGE))
 
-    ANT_LOC_LIST, Y = RunNN(4, train_nn.XRANGE, train_nn.YRANGE, train_nn.model)
+    ANT_LOC_LIST, Y = RunNN(4, train_nn.XRANGE, train_nn.YRANGE,img_scale, model)
     roomCoverage = get_stats(ANT_LOC_LIST, Y)
     best_loc_idx = np.argmax(roomCoverage)
+    print("Best Antenna Location:  {}".format(ANT_LOC_LIST[best_loc_idx][:2]))
     print("Room Coverage Score:  {}\n".format(roomCoverage[best_loc_idx]))
     plot_signal_strength(Y[best_loc_idx, :, :], ANT_LOC_LIST[best_loc_idx])
     print("Success\n")
